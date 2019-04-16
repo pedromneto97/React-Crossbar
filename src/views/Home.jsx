@@ -4,6 +4,21 @@ import logo from '../logo.svg';
 import '../assets/css/App.css';
 import {Connection} from 'autobahn';
 
+function InputMov(props) {
+    const {
+        handleChange,
+        value,
+        name,
+        descricao
+    } = props;
+    return (<Form.Group controlId={name}>
+        <Form.Control type='number' onChange={handleChange} name={name}
+                      value={value}/>
+        <Form.Control.Feedback type='invalid'>Necessita ser um número</Form.Control.Feedback>
+        <Form.Text className="text-muted">{descricao}</Form.Text>
+    </Form.Group>);
+}
+
 class Home extends Component {
     constructor(props) {
         let wsuri;
@@ -12,7 +27,7 @@ class Home extends Component {
                 transports: [
                     {
                         'type': 'websocket',
-                        'url': 'ws:' + '//' + 'crossbar-stepper.herokuapp.com' + '/ws'
+                        'url': 'ws://crossbar-stepper.herokuapp.com/ws'
                     }
                 ], realm: 'realm1'
             }
@@ -25,12 +40,11 @@ class Home extends Component {
         super(props);
         this.state = {
             velocidade: 0,
-            velocidade_anterior: 0,
             passos: 0,
-            passos_anterior: 0,
-            passos_total: 0,
-            atualizacao: true,
+            distancia: 0,
+            atualizacao: false,
             validated: false,
+            tipo_passos: true,
             connection: new Connection(wsuri),
         };
         this.handleChange = this.handleChange.bind(this);
@@ -41,7 +55,6 @@ class Home extends Component {
             console.info('Aberto!');
             session.subscribe('io.velocidade', function (msg) {
                 this.setState({
-                        velocidade_anterior: this.state.velocidade,
                         velocidade: parseInt(msg[0]),
                         atualizacao: true
                     }
@@ -50,10 +63,18 @@ class Home extends Component {
 
             session.subscribe('io.passos', function (msg) {
                 this.setState({
-                        passos_anterior: this.state.passos,
                         passos: parseInt(msg),
-                        passos_total: this.state.passos_total + parseInt(msg[0]),
-                        atualizacao: true
+                    atualizacao: true,
+                    tipo_passo: true
+                    }
+                );
+            }.bind(this));
+
+            session.subscribe('io.distancia', function (msg) {
+                this.setState({
+                        distancia: parseInt(msg),
+                        atualizacao: true,
+                        tipo_passo: true
                     }
                 );
             }.bind(this));
@@ -66,6 +87,20 @@ class Home extends Component {
             this.setState({'velocidade': parseInt(event.target.value)});
         else if (event.target.name === 'passos')
             this.setState({'passos': parseInt(event.target.value)});
+        else if (event.target.name === 'distancia')
+            this.setState({distancia: parseInt(event.target.value)});
+        else if (event.target.name === 'type.select')
+            if (event.target.value === 'milimetros') {
+                this.setState({
+                    passos: 0,
+                    tipo_passo: false
+                })
+            } else if (event.target.value === 'passos') {
+                this.setState({
+                    distancia: 0,
+                    tipo_passo: true
+                })
+            }
     }
 
     handleSubmit(event) {
@@ -76,16 +111,14 @@ class Home extends Component {
         }
         this.setState({validated: true});
         if (this.state.connection.session) {
-            if (this.state.velocidade !== this.state.velocidade_anterior) {
+            if (this.state.velocidade !== 0) {
                 this.state.connection.session.publish('io.velocidade', [this.state.velocidade]);
-                this.setState({velocidade_anterior: this.state.velocidade});
             }
-            if (this.state.passos !== this.state.passos_anterior) {
+            if (this.state.passos > 0) {
                 this.state.connection.session.publish('io.passos', [this.state.passos]);
-                this.setState({
-                    passos_anterior: this.state.passos,
-                    passos_total: this.state.passos_total + this.state.passos
-                });
+            }
+            if (this.state.distancia > 0) {
+                this.state.connection.session.publish('io.distancia', [this.state.distancia]);
             }
         } else {
             console.error('Sessão não existente');
@@ -94,14 +127,15 @@ class Home extends Component {
 
     handleReset(event) {
         this.setState({
-            velocidade_anterior: this.state.velocidade,
-            passos_anterior: this.state.passos,
             passos: 0,
+            distancia: 0,
             velocidade: 0,
+            tipo_form: true,
             atualizacao: false
         });
-        this.state.connection.session.publish('io.velocidade', [this.state.velocidade]);
-        this.state.connection.session.publish('io.passos', [this.state.velocidade]);
+        this.state.connection.session.publish('io.velocidade', [0]);
+        this.state.connection.session.publish('io.passos', [0]);
+        this.state.connection.session.publish('io.passos', [0]);
     }
 
     handleAlert(event) {
@@ -128,23 +162,26 @@ class Home extends Component {
                             <Form.Label>
                                 Velocidade: {this.state.velocidade}
                             </Form.Label>
-                            <Form.Control type='range' min={0} max={1000} value={this.state.velocidade}
+                            <Form.Control type='range' min={0} max={5000} value={this.state.velocidade}
                                           name='velocidade' onChange={this.handleChange}/>
                             <Form.Text className="text-muted">
                                 Controla a velocidade do motor
                             </Form.Text>
                         </Form.Group>
-                        <Form.Group controlId="passos">
-                            <Form.Label>
-                                Passos: {this.state.passos}
-                            </Form.Label>
-                            <Form.Control type='number' onChange={this.handleChange} name='passos'
-                                          value={this.state.passos}/>
-                            <Form.Control.Feedback type='invalid'>Necessita ser um número</Form.Control.Feedback>
-                            <Form.Text className="text-muted">
-                                Número de passos do motor
-                            </Form.Text>
+                        <Form.Group controlId="type.select">
+                            <Form.Label>Selecione o tipo de movimentação</Form.Label>
+                            <Form.Control as="select" name="type.select" onChange={this.handleChange}>
+                                <option value='passos'>Passos</option>
+                                <option value='milimetros'>Milímetros</option>
+                            </Form.Control>
                         </Form.Group>
+                        {this.state.tipo_passo ?
+                            <InputMov handleChange={this.handleChange} value={this.state.passos} name='passos'
+                                      descricao="Número de passos do motor"/> :
+                            <InputMov handleChange={this.handleChange} value={this.state.distancia} name="distancia"
+                                      descricao="Distância em milímetros"/>
+                        }
+
                         <Form.Group>
                             <Form.Control type='reset' onClick={this.handleReset}/>
                         </Form.Group>
